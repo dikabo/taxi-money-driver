@@ -43,16 +43,25 @@ export function SignupForm() {
       immatriculation: '',
       termsAccepted: false,
       privacyAccepted: false,
-    } as Partial<SignupFormValues>,
+    }, // Removed 'as Partial<SignupFormValues>' for cleaner typing
   });
 
-  async function onSubmit(values: SignupFormValues & { immatriculation?: string }) {
+  // FIX: Changed function signature to strictly use SignupFormValues. 
+  // form.handleSubmit ensures values conform to the schema.
+  async function onSubmit(values: SignupFormValues) {
     setIsLoading(true);
 
+    // DEBUG: Console log to confirm form submission starts after validation passes
+    console.log('Attempting signup with values:', values);
+
     try {
+      // FIX: Removed the redundant 'immatriculation' transformation logic.
+      // The input field's onChange already sets the value to uppercase in the form state.
+      // Sending 'values' directly is cleaner, but we ensure immatriculation is uppercase 
+      // one final time just in case, relying on the schema to guarantee it's a string.
       const submissionValues = {
         ...values,
-        immatriculation: values.immatriculation ? values.immatriculation.toUpperCase() : undefined,
+        immatriculation: values.immatriculation.toUpperCase(),
       };
 
       const response = await fetch('/api/auth/signup', {
@@ -66,8 +75,13 @@ export function SignupForm() {
       const result = await response.json();
 
       if (!response.ok) {
+        // DEBUG: Log the full API error response for better server-side debugging
+        console.error('API Error Response:', result);
         throw new Error(result.error || 'An unknown error occurred');
       }
+
+      // DEBUG: Log successful response before redirecting
+      console.log('API response OK. Redirecting...');
 
       sonnerToast.success('Account created successfully!', {
         description: 'An OTP has been sent to your phone. Please verify.',
@@ -84,6 +98,7 @@ export function SignupForm() {
         description: errorMessage,
       });
     } finally {
+      // Crucial: This ensures the loading spinner is dismissed even if there's an error
       setIsLoading(false);
     }
   }
