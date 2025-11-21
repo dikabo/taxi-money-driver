@@ -10,6 +10,11 @@ import mongoose from 'mongoose';
  * This code checks if a connection already exists and reuses it.
  */
 
+interface CachedConnection {
+  conn: mongoose.Mongoose | null;
+  promise: Promise<mongoose.Mongoose> | null;
+}
+
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
@@ -19,10 +24,10 @@ if (!MONGODB_URI) {
 }
 
 // Global cache for the Mongoose connection promise
-let cached = (global as any).mongoose;
+let cached = (global as unknown as { mongoose: CachedConnection }).mongoose;
 
 if (!cached) {
-  cached = (global as any).mongoose = { conn: null, promise: null };
+  cached = (global as unknown as { mongoose: CachedConnection }).mongoose = { conn: null, promise: null };
 }
 
 async function dbConnect() {

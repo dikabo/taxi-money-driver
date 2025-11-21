@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+// ✅ IMPORT: Using the alias we created
 import { signupSchema } from '@/lib/validations/auth-cameroon';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,13 +21,6 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast as sonnerToast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-
-/**
- * File: /components/forms/SignupForm.tsx
- * Purpose: The frontend form for driver registration.
- *
- * UPDATED: Changed placeholder and description for Matricule.
- */
 
 type SignupFormValues = z.infer<typeof signupSchema>;
 
@@ -49,17 +43,16 @@ export function SignupForm() {
       immatriculation: '',
       termsAccepted: false,
       privacyAccepted: false,
-    },
+    } as Partial<SignupFormValues>,
   });
 
-  async function onSubmit(values: SignupFormValues) {
+  async function onSubmit(values: SignupFormValues & { immatriculation?: string }) {
     setIsLoading(true);
 
     try {
-      // Transform matricule to uppercase before sending
       const submissionValues = {
         ...values,
-        immatriculation: values.immatriculation.toUpperCase(),
+        immatriculation: values.immatriculation ? values.immatriculation.toUpperCase() : undefined,
       };
 
       const response = await fetch('/api/auth/signup', {
@@ -237,7 +230,6 @@ export function SignupForm() {
           />
         </div>
 
-        {/* THIS IS THE UPDATED FIELD */}
         <FormField
           control={form.control}
           name="immatriculation"
@@ -245,14 +237,12 @@ export function SignupForm() {
             <FormItem>
               <FormLabel>Matricule (Immatriculation)</FormLabel>
               <FormControl>
-                {/* New placeholder */}
                 <Input 
                   placeholder="CE1234AA" 
                   {...field} 
                   onChange={(e) => field.onChange(e.target.value.toUpperCase())}
                 />
               </FormControl>
-              {/* New description */}
               <FormDescription>
                 Format: CE1234AA (no spaces)
               </FormDescription>

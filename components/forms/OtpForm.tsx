@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { otpSchema } from '@/lib/validations/auth-cameroon';
+import { driverOtpSchema} from '@/lib/validations/auth-cameroon';
 import {
   Form,
   FormControl,

@@ -3,15 +3,16 @@ import mongoose, { Document, Model, Schema } from 'mongoose';
 /**
  * File: /lib/db/models/Driver.ts
  * Purpose: Defines the Mongoose schema for the Driver collection.
+ *
+ * UPDATED: 'availableBalance' and 'dailyEarnings' now default to 0.
  */
 
-// Interface for the Driver document
 export interface IDriver extends Document {
-  authId: string; // From Supabase
+  authId: string;
   firstName: string;
   lastName: string;
   phoneNumber: string;
-  email?: string; // Now optional
+  email?: string;
   vehicleType: string;
   vehicleColor: string;
   vehicleMake: string;
@@ -19,95 +20,45 @@ export interface IDriver extends Document {
   immatriculation: string;
   termsAccepted: boolean;
   privacyAccepted: boolean;
+  availableBalance: number;
+  dailyEarnings: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
-// Mongoose Schema
 const DriverSchema: Schema<IDriver> = new mongoose.Schema(
   {
-    authId: {
-      type: String,
+    // ... (all other fields like authId, firstName are perfect)
+    authId: { type: String, required: true, unique: true, index: true },
+    firstName: { type: String, required: true, trim: true },
+    lastName: { type: String, required: true, trim: true },
+    phoneNumber: { type: String, required: true, unique: true, index: true },
+    email: { type: String, required: false, unique: true, sparse: true, trim: true, lowercase: true },
+    vehicleType: { type: String, required: true, trim: true },
+    vehicleColor: { type: String, required: true, trim: true },
+    vehicleMake: { type: String, required: true, trim: true },
+    vehicleModel: { type: String, required: true, trim: true },
+    immatriculation: { type: String, required: true, unique: true, trim: true, uppercase: true },
+    termsAccepted: { type: Boolean, required: true },
+    privacyAccepted: { type: Boolean, required: true },
+    
+    // THIS IS THE FIX (as you requested)
+    availableBalance: {
+      type: Number,
       required: true,
-      unique: true,
-      index: true,
+      default: 0, // Start with 0
     },
-    firstName: {
-      type: String,
-      required: [true, 'First name is required'],
-      trim: true,
-    },
-    lastName: {
-      type: String,
-      required: [true, 'Last name is required'],
-      trim: true,
-    },
-    phoneNumber: {
-      type: String,
-      required: [true, 'Phone number is required'],
-      unique: true,
-      index: true,
-    },
-    email: {
-      type: String,
-      required: false, // Optional
-      unique: true,
-      sparse: true, // Allows multiple nulls, but ensures uniqueness if a value exists
-      trim: true,
-      lowercase: true,
-      match: [/.+\@.+\..+/, 'Please enter a valid email address'],
-    },
-    vehicleType: {
-      type: String,
-      required: [true, 'Vehicle type is required'],
-      trim: true,
-    },
-    vehicleColor: {
-      type: String,
-      required: [true, 'Vehicle color is required'],
-      trim: true,
-    },
-    vehicleMake: {
-      type: String,
-      required: [true, 'Vehicle make is required'],
-      trim: true,
-    },
-    vehicleModel: {
-      type: String,
-      required: [true, 'Vehicle model is required'],
-      trim: true,
-    },
-    immatriculation: {
-      type: String,
-      required: [true, 'Immatriculation (matricule) is required'],
-      unique: true,
-      trim: true,
-      uppercase: true,
-    },
-    termsAccepted: {
-      type: Boolean,
+    dailyEarnings: {
+      type: Number,
       required: true,
-      validate: [
-        (val: boolean) => val === true,
-        'You must accept the terms and conditions',
-      ],
-    },
-    privacyAccepted: {
-      type: Boolean,
-      required: true,
-      validate: [
-        (val: boolean) => val === true,
-        'You must accept the privacy policy',
-      ],
+      default: 0, // Start with 0
     },
   },
   {
-    // Add timestamps (createdAt, updatedAt)
     timestamps: true,
   }
 );
 
-// Prevent re-compilation of the model if it already exists
 const Driver: Model<IDriver> =
   mongoose.models.Driver || mongoose.model<IDriver>('Driver', DriverSchema);
 

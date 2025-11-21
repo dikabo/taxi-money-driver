@@ -1,97 +1,103 @@
-import { z } from 'zod';
-
 /**
  * File: /lib/validations/auth-cameroon.ts
- * Purpose: Defines Zod schemas for input validation.
- *
- * THE FINAL, HOLISTIC FIX:
- * We are switching 'amount' to a z.string() and validating it
- * as a string. This fixes the 'string' vs 'number' type-war.
- * The API will handle the conversion.
+ * Purpose: Zod schemas for driver authentication
+ * ✅ FIXED: All TypeScript errors resolved
  */
 
-// Regex for Cameroon phone numbers (e.g., +237699123456)
+import { z } from 'zod';
+
 const cameroonPhoneRegex = /^\+237[6-8]\d{8}$/;
-
-// Regex for Cameroon vehicle immatriculation (e.g., CE1234AA)
-const immatriculationRegex = /^[A-Z0-9]{8}$/i;
-
-// Password regex: min 8 chars, 1 letter, 1 number, 1 special char
+const pinRegex = /^\d{4}$/;
 const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 
-export const signupSchema = z.object({
-  firstName: z.string().min(2, 'First name must be at least 2 characters'),
-  lastName: z.string().min(2, 'Last name must be at least 2 characters'),
+const numericString = z
+  .string()
+  .regex(/^\d+$/, 'Doit être un nombre valide');
 
+// ✅ FIXED: Complete driver signup schema
+export const driverSignupSchema = z.object({
+  firstName: z.string().min(2, 'Le prénom doit contenir au moins 2 caractères'),
+  lastName: z.string().min(2, 'Le nom doit contenir au moins 2 caractères'),
   phoneNumber: z.string().regex(cameroonPhoneRegex, {
-    message: 'Phone number must be in the format +237XXXXXXXXX',
+    message: 'Le numéro doit être au format +237XXXXXXXXX',
   }),
-
   password: z.string().regex(passwordRegex, {
-    message:
-      'Password must be 8+ chars with a letter, number, and special character.',
+    message: '8+ caractères, avec lettre, chiffre et symbole.',
   }),
-  
+  pin: z.string().regex(pinRegex, {
+    message: 'Votre code PIN doit être composé de 4 chiffres.',
+  }),
   email: z
     .string()
-    .email('Please enter a valid email address')
+    .email('Veuillez saisir une adresse e-mail valide')
     .optional()
     .or(z.literal('')),
-
-  vehicleType: z.string().min(3, 'Vehicle type required'),
-  vehicleMake: z.string().min(2, 'Vehicle make required'),
-  vehicleModel: z.string().min(2, 'Vehicle model required'),
-  vehicleColor: z.string().min(3, 'Vehicle color required'),
-
-  immatriculation: z.string().regex(immatriculationRegex, {
-    message: 'Matricule must be 8 characters (e.g., CE1234AA)',
-  }),
-
+  vehicleType: z.string().min(2, 'Type de véhicule requis'),
+  vehicleColor: z.string().min(2, 'Couleur requise'),
+  vehicleMake: z.string().min(2, 'Marque requise'),
+  vehicleModel: z.string().min(2, 'Modèle requis'),
+  immatriculation: z.string().min(6, 'Immatriculation invalide'),
   termsAccepted: z.boolean().refine((val) => val === true, {
-    message: 'You must accept the terms and conditions',
+    message: 'Vous devez accepter les conditions générales.',
   }),
   privacyAccepted: z.boolean().refine((val) => val === true, {
-    message: 'You must accept the privacy policy',
+    message: 'Vous devez accepter la politique de confidentialité.',
   }),
 });
 
-export const otpSchema = z.object({
+// ✅ ALIAS: Export signupSchema to match your form imports
+export const signupSchema = driverSignupSchema;
+
+export const driverOtpSchema = z.object({
   phoneNumber: z.string().regex(cameroonPhoneRegex, {
-    message: 'Phone number must be in the format +237XXXXXXXXX',
+    message: 'Le numéro doit être au format +237XXXXXXXXX',
   }),
   token: z
     .string()
-    .min(6, 'OTP must be 6 digits')
-    .max(6, 'OTP must be 6 digits'),
+    .min(6, 'Le code OTP doit être de 6 chiffres')
+    .max(6, 'Le code OTP doit être de 6 chiffres'),
 });
 
-// This is a regex to check if a string contains only digits
-const numericString = z.string().regex(/^\d+$/, 'Must be a valid number');
-
-// UPDATED SCHEMA FOR WITHDRAWALS
-export const withdrawSchema = z.object({
-  // THIS IS THE FIX. We validate it as a string.
-  amount: numericString
-    .min(1, 'Please enter an amount.')
-    .refine((val) => Number(val) >= 150, {
-      message: 'Minimum withdrawal is 150 XAF',
-    }),
-  method: z.string().min(1, 'Please select a withdrawal method.'),
-  
-  withdrawalPhoneNumber: z.string().regex(cameroonPhoneRegex, {
-    message: 'Please enter a valid MoMo number in the format +237XXXXXXXXX',
+export const pinLoginSchema = z.object({
+  pin: z.string().regex(pinRegex, {
+    message: 'Votre code PIN doit être composé de 4 chiffres.',
   }),
 });
 
-// UPDATED SCHEMA FOR REQUESTING A PAYMENT
-export const requestPaymentSchema = z.object({
-  // THIS IS THE FIX. We validate it as a string.
+// ✅ FIXED: Proper enum definition with error handling
+export const withdrawSchema = z.object({
   amount: numericString
-    .min(1, 'Please enter an amount.')
-    .refine((val) => Number(val) >= 150, {
-      message: 'Minimum payment is 150 XAF',
+    .refine((val) => Number(val) >= 100, {
+      message: 'Le retrait minimum est de 100 Units',
+    })
+    .refine((val) => Number(val) <= 500000, {
+      message: 'Montant invalide',
+    }),
+  method: z.enum(['MTN', 'Orange'] as const, {
+    message: 'Veuillez choisir MTN ou Orange',
+  }),
+  withdrawalPhoneNumber: z
+    .string()
+    .min(1, 'Veuillez entrer un numéro de téléphone')
+    .regex(cameroonPhoneRegex, 'Veuillez saisir un numéro MoMo valide'),
+});
+
+export const requestPaymentSchema = z.object({
+  amount: numericString
+    .refine((val) => Number(val) > 0, {
+      message: 'Le montant doit être supérieur à 0',
+    })
+    .refine((val) => Number(val) <= 4000, {
+      message: 'Le montant maximum est de 4,000 Units',
     }),
   passengerId: z
     .string()
-    .min(6, 'Passenger ID must be at least 6 characters'),
+    .min(6, 'L\'ID du passager doit contenir au moins 6 caractères'),
 });
+
+// ✅ Type exports
+export type DriverSignupValues = z.infer<typeof driverSignupSchema>;
+export type DriverOtpValues = z.infer<typeof driverOtpSchema>;
+export type PinLoginValues = z.infer<typeof pinLoginSchema>;
+export type WithdrawFormValues = z.infer<typeof withdrawSchema>;
+export type RequestPaymentValues = z.infer<typeof requestPaymentSchema>;

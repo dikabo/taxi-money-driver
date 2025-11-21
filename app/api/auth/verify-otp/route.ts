@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers'; // Import cookies HERE
 import { z } from 'zod';
-import { otpSchema } from '@/lib/validations/auth-cameroon';
+import { driverOtpSchema as otpSchema } from '@/lib/validations/auth-cameroon';
 import { createCookieServerClient } from '@/lib/auth/supabase-server'; 
 
 /**
