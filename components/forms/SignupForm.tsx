@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, SubmitHandler } from 'react-hook-form'; // Added SubmitHandler
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 // ✅ IMPORT: Using the alias we created
@@ -43,25 +43,21 @@ export function SignupForm() {
       immatriculation: '',
       termsAccepted: false,
       privacyAccepted: false,
-    }, // Removed 'as Partial<SignupFormValues>' for cleaner typing
+    } as Partial<SignupFormValues>,
   });
 
-  // FIX: Changed function signature to strictly use SignupFormValues. 
-  // form.handleSubmit ensures values conform to the schema.
-  async function onSubmit(values: SignupFormValues) {
+  // ✅ FIXED: Implemented the robust logic from the Passenger app
+  const onSubmit: SubmitHandler<SignupFormValues> = async (values) => {
     setIsLoading(true);
-
-    // DEBUG: Console log to confirm form submission starts after validation passes
-    console.log('Attempting signup with values:', values);
+    let apiError = ''; // Store error here instead of throwing immediately
 
     try {
-      // FIX: Removed the redundant 'immatriculation' transformation logic.
-      // The input field's onChange already sets the value to uppercase in the form state.
-      // Sending 'values' directly is cleaner, but we ensure immatriculation is uppercase 
-      // one final time just in case, relying on the schema to guarantee it's a string.
-      const submissionValues = {
+      // Preserve specific driver logic: Uppercase the matricule
+      // We cast values to 'any' briefly to handle the dynamic property safely if Typescript complains, 
+      // or we just rely on the object spread.
+      const submissionValues: SignupFormValues = {
         ...values,
-        immatriculation: values.immatriculation.toUpperCase(),
+        immatriculation: values.immatriculation ? values.immatriculation.toUpperCase() : '',
       };
 
       const response = await fetch('/api/auth/signup', {
@@ -75,33 +71,36 @@ export function SignupForm() {
       const result = await response.json();
 
       if (!response.ok) {
-        // DEBUG: Log the full API error response for better server-side debugging
-        console.error('API Error Response:', result);
-        throw new Error(result.error || 'An unknown error occurred');
+        // Capture API error
+        apiError = result.error || 'An unknown error occurred';
       }
 
-      // DEBUG: Log successful response before redirecting
-      console.log('API response OK. Redirecting...');
+    } catch (error) {
+      // Capture Network/Fetch error
+      console.error('Signup fetch error:', error);
+      apiError = 'Unable to contact server. Please check your connection.';
+    }
 
+    // Handle results outside the try/catch block
+    if (apiError) {
+      // --- FAILURE CASE ---
+      sonnerToast.error('Signup Failed', {
+        description: apiError,
+      });
+      setIsLoading(false); // Stop loading so user can try again
+    } else {
+      // --- SUCCESS CASE ---
       sonnerToast.success('Account created successfully!', {
         description: 'An OTP has been sent to your phone. Please verify.',
       });
 
-      router.push(`/verify-otp?phone=${encodeURIComponent(values.phoneNumber)}`);
-    } catch (error) {
-      let errorMessage = 'An unexpected error occurred.';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      console.error('Signup error:', errorMessage);
-      sonnerToast.error('Signup Failed', {
-        description: errorMessage,
-      });
-    } finally {
-      // Crucial: This ensures the loading spinner is dismissed even if there's an error
+      // Stop loading BEFORE navigating
       setIsLoading(false);
+
+      // Navigate to OTP page
+      router.push(`/verify-otp?phone=${encodeURIComponent(values.phoneNumber)}`);
     }
-  }
+  };
 
   return (
     <Form {...form}>
