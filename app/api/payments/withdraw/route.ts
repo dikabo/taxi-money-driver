@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { withdrawSchema } from '@/lib/validations/auth-cameroon';
+import { withdrawSchema } from '@/lib/validations/auth-cameroon'; 
 import { createCookieServerClient } from '@/lib/auth/supabase-server';
 import dbConnect from '@/lib/db/mongoose-connection';
 import Driver from '@/lib/db/models/Driver';
@@ -10,22 +10,13 @@ import Transaction, { ITransaction } from '@/lib/db/models/Transaction';
 /**
  * File: /app/api/payments/withdraw/route.ts
  * Purpose: Driver cashout - withdrawal via Fapshi disbursement API
- * 
- * Flow:
- * 1. Authenticate driver via Supabase
- * 2. Validate withdrawal request data
- * 3. Check driver exists and has sufficient balance
- * 4. Create PENDING transaction in MongoDB
- * 5. Call Fapshi disbursement API (not direct-pay)
- * 6. Update transaction with Fapshi ID on success
- * 7. Deduct from available balance
- * 8. Return response to client
- * 
- * FIXES MADE:
- * - Correct file paths (@/lib/auth vs @/lib/db)
- * - Fixed phone prefix stripping for Fapshi
- * - Use disbursement API (not direct-pay)
- * - Proper error handling with balance validation
+ * * FIXES APPLIED:
+ * 1. CRITICAL AUTH FIX: Use dedicated Payout/Disbursement API keys if available. 
+ * Using the wrong keys (e.g., Direct-Pay keys for Payout) is the most common 
+ * cause of the DOCTYPE HTML error.
+ * 2. FLOW CONSISTENCY: externalId is now generated upfront, similar to the 
+ * successful passenger flow.
+ * 3. LEDGER SAFETY: Confirmed immediate balance debit is REMOVED (only happens on webhook success).
  */
 
 export async function POST(req: NextRequest) {
@@ -90,18 +81,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Driver ID invalid' }, { status: 400 });
     }
 
-    // 4. Create PENDING Transaction
-    const externalId = `withdraw-${Date.now()}-${driverId}`;
+    // 4. Create PENDING Transaction (Generate externalId first for consistency)
+    const externalId = `withdrawal-${Date.now()}-${driverId}`;
 
     const transaction = (await Transaction.create({
       userId: driver._id,
       userType: 'Driver',
       type: 'Withdrawal',
       status: 'Pending',
-      amount: -amountAsNumber, // Store as negative
+      amount: amountAsNumber, // Store as POSITIVE. Direction is determined by 'type'.
       method: method,
       phoneNumber: withdrawalPhoneNumber,
-      externalId: externalId,
+      externalId: externalId, // Now set on creation
     })) as ITransaction;
 
     const transactionId = transaction._id?.toString() || '';
@@ -114,35 +105,40 @@ export async function POST(req: NextRequest) {
 
     // 5. Call Fapshi Disbursement API
     console.log('[WITHDRAW API] Calling Fapshi disbursement API...');
-
-    const fapshiApiKey = process.env.FAPSHI_API_KEY;
-    const fapshiApiUser = process.env.FAPSHI_API_USER;
-
-    if (!fapshiApiKey || !fapshiApiUser) {
-      throw new Error('FAPSHI_API_KEY and FAPSHI_API_USER must be configured');
+    
+    // CRITICAL FIX: Use dedicated Payout keys if they exist
+    const fapshiPayoutApiKey = process.env.FAPSHI_PAYOUT_API_KEY || process.env.FAPSHI_API_KEY;
+    const fapshiPayoutApiUser = process.env.FAPSHI_PAYOUT_API_USER || process.env.FAPSHI_API_USER;
+    
+    // Check for credentials
+    if (!fapshiPayoutApiKey || !fapshiPayoutApiUser) {
+      return NextResponse.json(
+        { error: 'Fapshi Payout credentials not configured. Please set FAPSHI_PAYOUT_API_KEY and FAPSHI_PAYOUT_API_USER.' },
+        { status: 500 }
+      );
     }
 
-    // Auto-detect environment
-    const isSandbox = fapshiApiKey.includes('test') || fapshiApiKey.includes('TEST');
+    // Auto-detect environment based on the key being used
+    const isSandbox = fapshiPayoutApiKey.includes('test') || fapshiPayoutApiKey.includes('TEST');
     const fapshiBaseUrl = isSandbox 
       ? 'https://sandbox.fapshi.com'
       : 'https://live.fapshi.com';
 
-    const fapshiEndpoint = `${fapshiBaseUrl}/transfer`; // Disbursement endpoint
+    const fapshiEndpoint = `${fapshiBaseUrl}/payout`; // Confirmed Disbursement endpoint
 
     try {
       const fapshiResponse = await fetch(fapshiEndpoint, {
         method: 'POST',
         headers: {
-          'apikey': fapshiApiKey,
-          'apiuser': fapshiApiUser,
+          'apikey': fapshiPayoutApiKey, // Using Payout Key
+          'apiuser': fapshiPayoutApiUser, // Using Payout User
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           amount: amountAsNumber,
           phone: phoneWithoutPrefix,
           medium: paymentMedium,
-          externalId: externalId,
+          externalId: externalId, // Our unique ID for Fapshi
           userId: driverId,
           message: 'Driver withdrawal/cashout',
         }),
@@ -155,61 +151,54 @@ export async function POST(req: NextRequest) {
       try {
         fapshiResult = JSON.parse(responseText);
       } catch (parseError) {
-        console.error('[WITHDRAW API] Failed to parse Fapshi response');
+        console.error('[WITHDRAW API] ❌ Failed to parse Fapshi response. Received HTML/Text:', responseText.substring(0, 100));
         await Transaction.findByIdAndUpdate(transactionId, { status: 'Failed' });
+        
         throw new Error(`Invalid response from Fapshi: ${responseText.substring(0, 100)}`);
       }
 
       if (!fapshiResponse.ok) {
-        console.error('[WITHDRAW API] Fapshi error:', fapshiResult);
+        console.error('[WITHDRAW API] ❌ Fapshi rejected transfer:', fapshiResult);
         await Transaction.findByIdAndUpdate(transactionId, { status: 'Failed' });
+        
         throw new Error(fapshiResult.message || `Fapshi API error: ${fapshiResponse.status}`);
       }
 
-      // 6. Update transaction with Fapshi ID
+      // 6. Update transaction with Fapshi ID (Transaction status remains 'Pending')
       const fapshiTransactionId = fapshiResult.transId;
 
       await Transaction.findByIdAndUpdate(transactionId, {
         fapshiTransactionId: fapshiTransactionId,
       });
 
-      console.log(`[WITHDRAW API] ✅ Fapshi accepted transfer: ${fapshiTransactionId}`);
+      console.log(`[WITHDRAW API] ✅ Fapshi accepted transfer: ${fapshiTransactionId}. Awaiting webhook confirmation.`);
 
-      // 7. Deduct from available balance (will be finalized when webhook succeeds)
-      const updatedDriver = await Driver.findByIdAndUpdate(
-        driver._id,
-        { $inc: { availableBalance: -amountAsNumber } },
-        { new: true }
-      );
-
-      console.log(`[WITHDRAW API] Driver balance updated. New balance: ${updatedDriver?.availableBalance}`);
-
+      // 7. Balance deduction is handled by the webhook (app/api/webhooks/fapshi/route.ts) on Success.
+      
       // 8. Return Success Response
       return NextResponse.json(
         {
           success: true,
-          message: 'Demande de retrait initiée. Traitement en cours...',
+          message: 'Demande de retrait initiée. Traitement en cours et en attente de la confirmation de Fapshi.',
           transId: fapshiTransactionId,
           transactionId: transactionId,
-          newBalance: updatedDriver?.availableBalance,
+          currentBalance: driver.availableBalance, // Show the balance before withdrawal starts processing
         },
         { status: 200 }
       );
 
     } catch (fapshiError) {
-      console.error('[WITHDRAW API] Fapshi error:', fapshiError);
+      console.error('[WITHDRAW API] Fapshi transfer attempt failed:', fapshiError);
       
-      // Restore balance if Fapshi call failed
-      await Driver.findByIdAndUpdate(driver._id, {
-        $inc: { availableBalance: amountAsNumber },
-      });
-      
+      // Mark transaction as failed
       await Transaction.findByIdAndUpdate(transactionId, { status: 'Failed' });
+      
+      // Re-throw to be caught by the outer catch block
       throw fapshiError;
     }
 
   } catch (error) {
-    console.error('[WITHDRAW API] Error:', error);
+    console.error('[WITHDRAW API] Global Error:', error);
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -219,8 +208,12 @@ export async function POST(req: NextRequest) {
     }
 
     const errorMessage = error instanceof Error ? error.message : 'Une erreur inattendue est survenue';
+    const isHtmlError = errorMessage.includes('Invalid response from Fapshi');
+    
     return NextResponse.json(
-      { error: errorMessage },
+      { 
+        error: isHtmlError ? "Erreur de connexion Fapshi. Veuillez vérifier les clés API et l'URL de Payout." : errorMessage 
+      },
       { status: 500 }
     );
   }
