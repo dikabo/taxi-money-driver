@@ -10,8 +10,7 @@ import { Metadata } from 'next';
 /**
  * File: /app/(dashboard)/profile/page.tsx
  * Purpose: The driver's profile page, displaying their data.
- *
- * This is now a dynamic Server Component.
+ * ✅ FIXED: Driver ID now consistent with home page (uses _id, not authId)
  */
 
 export const metadata: Metadata = {
@@ -24,7 +23,7 @@ async function getDriverData() {
   const supabase = createCookieServerClient(cookieStore);
 
   // 1. Get the current user session
-  const { data: { session }, } = await supabase.auth.getSession();
+  const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     return redirect('/signup');
   }
@@ -51,6 +50,9 @@ function InfoRow({ label, value }: { label: string; value: string | undefined })
 
 export default async function ProfilePage() {
   const driver = await getDriverData();
+  
+  // ✅ FIXED: Use the same format as home page (first 8 chars of _id)
+  const driverId = String(driver._id).substring(0, 8).toUpperCase();
 
   return (
     <div className="flex flex-col h-full space-y-6">
@@ -65,7 +67,7 @@ export default async function ProfilePage() {
         <CardContent>
           <InfoRow label="First Name" value={driver.firstName} />
           <InfoRow label="Last Name" value={driver.lastName} />
-          <InfoRow label="Driver ID" value={driver.authId.substring(0, 8)} />
+          <InfoRow label="Driver ID" value={driverId} />
         </CardContent>
       </Card>
 
