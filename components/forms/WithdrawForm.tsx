@@ -61,7 +61,7 @@ export function WithdrawForm({ availableBalance, driverPhone }: WithdrawFormProp
     defaultValues: {
       amount: '',
       method: undefined,
-      withdrawalPhoneNumber: driverPhone || '+237',
+      withdrawalPhoneNumber: driverPhone || '',
     },
   });
 

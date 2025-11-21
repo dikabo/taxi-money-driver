@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     // 7. Send OTP (by signing in with the Cookie Client)
     // THIS IS THE FIX for the yellow warning
-    if (phoneNumber === '+237699999999') {
+    if (phoneNumber === '699999999') {
       // It's our test user. The test OTP (123456) is handled by "Phone Autofill".
       console.log('Test user signup. Skipping real SMS send.');
     } else {
