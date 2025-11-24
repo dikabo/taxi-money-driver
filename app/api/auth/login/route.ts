@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { z } from 'zod';
+import dbConnect from '@/lib/db/mongoose-connection';
+import Driver from '@/lib/db/models/Driver';
 import { createCookieServerClient } from '@/lib/auth/supabase-server';
 
 /**
@@ -14,82 +15,98 @@ import { createCookieServerClient } from '@/lib/auth/supabase-server';
  * 4. Driver will verify OTP on next page
  */
 
-const loginSchema = z.object({
-  phoneNumber: z.string().regex(/^[6-8]\d{8}$/, {
-    message: 'Le numéro doit être au format 6XXXXXXXX',
-  }),
-});
-
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
 
   try {
-    // 1. Initialize Supabase Client
+    // 1. Check if user is authenticated (should have session from OTP verification)
     const supabase = createCookieServerClient(cookieStore);
-    
-    if (!supabase) {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
       return NextResponse.json(
-        { error: 'Could not create Supabase client' },
-        { status: 500 }
+        { error: 'Non authentifié. Veuillez vérifier votre OTP.' },
+        { status: 401 }
       );
     }
 
-    // 2. Parse and Validate Body
-    const body = await req.json();
-    const validation = loginSchema.safeParse(body);
+    // 2. Connect to MongoDB
+    await dbConnect();
 
-    if (!validation.success) {
+    // 3. Get passenger data
+    const driver = await Driver.findOne({ authId: session.user.id });
+
+    if (!driver) {
       return NextResponse.json(
-        { error: 'Invalid input.', details: validation.error.issues },
-        { status: 400 }
+        { error: 'Chauffeur non trouvé' },
+        { status: 404 }
       );
     }
 
-    const { phoneNumber } = validation.data;
+    console.log('[LOGIN] ✅ Login successful for:', driver.phoneNumber);
 
-    console.log('[LOGIN] Attempting to send OTP to:', phoneNumber);
-
-    // 3. Send OTP via Supabase
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      phone: phoneNumber,
-      options: {
-        // For test numbers, Supabase will use the Phone Autofill
-        shouldCreateUser: false, // Don't create user, they should already exist
-      },
-    });
-
-    if (otpError) {
-      console.error('[LOGIN] Supabase OTP error:', otpError);
-      return NextResponse.json(
-        { error: `Failed to send OTP: ${otpError.message}` },
-        { status: 400 }
-      );
-    }
-
-    console.log('[LOGIN] OTP sent successfully to:', phoneNumber);
-
-    // 4. Return Success
+    // 4. Return success with user data
     return NextResponse.json(
       {
         success: true,
-        message: 'OTP sent to your phone. Please verify.',
-        phoneNumber,
+        message: 'Connexion réussie',
+        user: {
+          id: driver._id,
+          firstName: driver.firstName,
+          lastName: driver.lastName,
+          phoneNumber: driver.phoneNumber,
+        },
       },
       { status: 200 }
     );
 
   } catch (error) {
-    console.error('[LOGIN] API Error:', error);
-    
-    if (error instanceof z.ZodError) {
+    console.error('[LOGIN API] Error:', error);
+
+    const errorMessage = error instanceof Error ? error.message : 'Une erreur inattendue est survenue';
+    return NextResponse.json(
+      { error: errorMessage },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * GET endpoint to check login status
+ */
+export async function GET(req: NextRequest) {
+  const cookieStore = await cookies();
+
+  try {
+    const supabase = createCookieServerClient(cookieStore);
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
       return NextResponse.json(
-        { error: 'Invalid validation', details: error.issues },
-        { status: 400 }
+        { authenticated: false },
+        { status: 200 }
       );
     }
-    
+
+    await dbConnect();
+    const driver = await Driver.findOne({ authId: session.user.id });
+
     return NextResponse.json(
-      { error: 'An unexpected error occurred.' },
+      {
+        authenticated: true,
+        user: driver ? {
+          id: driver._id,
+          firstName: driver.firstName,
+          lastName: driver.lastName,
+        } : null,
+      },
+      { status: 200 }
+    );
+
+  } catch (error) {
+    console.error('[LOGIN CHECK] Error:', error);
+    return NextResponse.json(
+      { authenticated: false },
       { status: 500 }
     );
   }
