@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, SubmitHandler } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -17,16 +18,19 @@ import {
 import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { createBrowserClient } from '@supabase/ssr';
 
 /**
- * File: /components/forms/DriverLoginForm.tsx
- * Purpose: Driver login - sends OTP (like passenger app)
- * Just phone number input → sends OTP → redirects to verify-otp page
+ * File: /components/forms/DriverLoginForm.tsx (DRIVER APP)
+ * Purpose: Driver login - FIXED to work like passenger app
+ * ✅ Calls Supabase directly (no /api/auth/login)
+ * ✅ Sends OTP automatically
+ * ✅ Redirects to verify-otp
  */
 
 const loginSchema = z.object({
   phoneNumber: z.string().regex(/^[6-8]\d{8}$/, {
-    message: 'Le numéro doit être au format 6XXXXXXXX',
+    message: 'Le numéro doit être composé de 9 chiffres (ex: 677123456)',
   }),
 });
 
@@ -43,41 +47,64 @@ export function DriverLoginForm() {
     },
   });
 
-  const onSubmit = async (values: LoginFormValues) => {
+  const onSubmit: SubmitHandler<LoginFormValues> = async (values) => {
     setIsLoading(true);
+    let apiError = '';
 
     try {
-      // Call login API to send OTP
-      const response = await fetch('/api/auth/login', {
+      // 1. Create Supabase client
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+
+      // 2. Check if driver exists in database first
+      const checkResponse = await fetch('/api/auth/check-phone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ phoneNumber: values.phoneNumber }),
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Échec de l\'envoi du code');
+      if (!checkResponse.ok) {
+        const error = await checkResponse.json();
+        apiError = error.error || 'Ce numéro n\'est pas enregistré';
+        throw new Error(apiError);
       }
 
-      toast.success('Code envoyé!', {
-        description: 'Un code OTP a été envoyé à votre téléphone',
+      // 3. Send OTP via Supabase (same as passenger app!)
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        phone: values.phoneNumber,
+        options: {
+          shouldCreateUser: false, // Don't create new user
+        },
       });
 
-      // Redirect to OTP verification page
-      router.push(`/verify-otp?phone=${encodeURIComponent(values.phoneNumber)}`);
+      if (otpError) {
+        console.error('[LOGIN] Supabase OTP error:', otpError);
+        apiError = 'Impossible d\'envoyer l\'OTP. Veuillez réessayer.';
+        throw new Error(apiError);
+      }
 
     } catch (error) {
-      let errorMessage = 'Une erreur inattendue est survenue.';
-      if (error instanceof Error) {
-        errorMessage = error.message;
+      console.error('[LOGIN] Error:', error);
+      if (!apiError) {
+        apiError = error instanceof Error ? error.message : 'Une erreur inattendue est survenue.';
       }
-      
+    }
+
+    // Handle result after try/catch
+    if (apiError) {
       toast.error('Échec de la connexion', {
-        description: errorMessage,
+        description: apiError,
       });
-    } finally {
       setIsLoading(false);
+    } else {
+      toast.success('OTP envoyé!', {
+        description: 'Vérifiez votre téléphone pour le code.',
+      });
+      
+      setIsLoading(false);
+      router.push(`/verify-otp?phone=${encodeURIComponent(values.phoneNumber)}`);
     }
   };
 
@@ -94,13 +121,17 @@ export function DriverLoginForm() {
               <FormLabel>Numéro de téléphone</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="6XXXXXXXX"
+                  placeholder="677123456"
                   {...field}
                   maxLength={9}
+                  type="tel"
                   className="bg-gray-800 border-gray-700 text-white"
                   disabled={isLoading}
                 />
               </FormControl>
+              <FormDescription>
+                9 chiffres (ex: 677123456)
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -115,10 +146,10 @@ export function DriverLoginForm() {
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Envoi du code...
+              Envoi en cours...
             </>
           ) : (
-            'Recevoir le code OTP'
+            'Continuer'
           )}
         </Button>
       </form>
