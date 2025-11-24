@@ -197,7 +197,7 @@ export default async function DriverHomePage() {
         <div>
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-lg font-semibold text-white">Activité récente</h2>
-            <Link href="/history">
+            <Link href="/components/dashboard/transactions/HistoryModal">
               <Button variant="link" className="p-0 text-white">
                 Voir tout
               </Button>
