@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { createCookieServerClient } from '@/lib/auth/supabase-server';
 import dbConnect from '@/lib/db/mongoose-connection';
-// NOTE: Assuming these Mongoose models exist and are correctly imported
 import Driver from '@/lib/db/models/Driver'; 
 import Transaction from '@/lib/db/models/Transaction'; 
 import { redirect } from 'next/navigation';
@@ -10,11 +9,11 @@ import { DollarSign, History, QrCode, TrendingUp } from 'lucide-react';
 import { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { HistoryModal } from '@/components/dashboard/transactions/HistoryModal'; // ✅ FIXED: Import HistoryModal
 
 /**
  * File: /app/(dashboard)/home/page.tsx (DRIVER APP)
- * Purpose: Driver dashboard with REAL DATA from MongoDB
- * ✅ FIXED: TypeScript structural and 'any' errors resolved
+ * ✅ FIXED: "Voir tout" now opens HistoryModal
  */
 
 export const metadata: Metadata = {
@@ -29,7 +28,6 @@ function formatUnits(amount: number | undefined = 0) {
   return `${amount.toLocaleString('fr-CM')} Units`;
 }
 
-// 1. Define the interface for the final, processed transaction (with proper Date object)
 interface TransactionWithDate {
   _id: string;
   type: string;
@@ -38,16 +36,13 @@ interface TransactionWithDate {
   createdAt: Date;
 }
 
-// 2. Define the interface for the raw data returned by Mongoose .lean()
 interface RawTransaction {
-  // FIX: Changed 'any' to 'unknown' to satisfy no-explicit-any rule (L44/L45)
   _id: unknown; 
   type: string;
   amount: number;
   notes?: string;
-  createdAt: string | Date; // Mongoose timestamps are convertible to Date
+  createdAt: string | Date;
 }
-
 
 async function getDriverData() {
   const cookieStore = await cookies();
@@ -61,14 +56,12 @@ async function getDriverData() {
 
   await dbConnect();
   
-  // Get driver
   const driver = await Driver.findOne({ authId: session.user.id });
 
   if (!driver) {
     return redirect('/signup');
   }
 
-  // ✅ FETCH REAL TRANSACTIONS
   const recentTransactionsRaw: RawTransaction[] = await Transaction.find({
     userId: driver._id,
     userType: 'Driver',
@@ -77,33 +70,29 @@ async function getDriverData() {
     .sort({ createdAt: -1 })
     .limit(5)
     .lean()
-    .exec() as unknown as RawTransaction[]; // FIX: Use unknown to bypass structural type conflict (L72)
+    .exec() as unknown as RawTransaction[];
 
-  // ✅ Convert to proper type with Date objects - FIX APPLIED HERE
   const recentTransactions: TransactionWithDate[] = recentTransactionsRaw.map((t: RawTransaction) => ({
     _id: String(t._id),
     type: t.type,
     amount: t.amount,
     notes: t.notes,
-    createdAt: new Date(t.createdAt), // Ensure it's a Date object
+    createdAt: new Date(t.createdAt),
   }));
 
-  // Calculate today's earnings
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  // Use RawTransaction[] for the lean result here too
   const todayTransactions: RawTransaction[] = await Transaction.find({
     userId: driver._id,
     userType: 'Driver',
     type: 'Payment',
     status: 'Success',
     createdAt: { $gte: today },
-  }).lean() as unknown as RawTransaction[]; // FIX: Use unknown to bypass structural type conflict (L97)
+  }).lean() as unknown as RawTransaction[];
 
   const dailyEarnings = todayTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
 
-  // Generate QR value
   const driverQrValue = `taximoney://driver/${driver._id}`;
 
   return { 
@@ -115,7 +104,6 @@ async function getDriverData() {
 }
 
 export default async function DriverHomePage() {
-  // Ensure we check if getDriverData returned a redirect response implicitly or actual data
   const data = await getDriverData();
 
   if ('driver' in data) {
@@ -141,7 +129,6 @@ export default async function DriverHomePage() {
             <QrCode className="h-4 w-4 text-gray-400" />
           </CardHeader>
           <CardContent className="flex flex-col items-center space-y-4">
-            {/* QR-like grid */}
             <div className="p-4 bg-white rounded-lg">
               <div className="grid grid-cols-8 gap-0.5 bg-white p-2">
                 {Array.from({ length: 64 }).map((_, i) => {
@@ -181,7 +168,7 @@ export default async function DriverHomePage() {
           </CardContent>
         </Card>
 
-        {/* Today's Earnings Card - ✅ REAL DATA */}
+        {/* Today's Earnings Card */}
         <Card className="bg-gray-900 border-gray-800 text-white">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Gains du jour</CardTitle>
@@ -193,15 +180,15 @@ export default async function DriverHomePage() {
           </CardContent>
         </Card>
 
-        {/* Recent Transactions - ✅ REAL DATA */}
+        {/* Recent Transactions - ✅ FIXED: Voir tout opens HistoryModal */}
         <div>
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-lg font-semibold text-white">Activité récente</h2>
-            <Link href="/components/dashboard/transactions/HistoryModal">
+            <HistoryModal>
               <Button variant="link" className="p-0 text-white">
                 Voir tout
               </Button>
-            </Link>
+            </HistoryModal>
           </div>
           
           {recentTransactions.length > 0 ? (
@@ -258,7 +245,5 @@ export default async function DriverHomePage() {
     );
   }
   
-  // This return should not be reached if the redirects in getDriverData work correctly, 
-  // but keeping the component structured as it relies on the async function's implicit redirection.
   return null; 
 }

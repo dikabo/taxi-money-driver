@@ -109,8 +109,8 @@ export async function POST(req: NextRequest) {
     console.log('='.repeat(80));
 
     // 7. Get Fapshi credentials
-    const fapshiApiKey = process.env.FAPSHI_API_KEY;
-    const fapshiApiUser = process.env.FAPSHI_API_USER;
+    const fapshiApiKey = process.env.FAPSHI_PAYOUT_API_KEY;
+    const fapshiApiUser = process.env.FAPSHI_PAYOUT_API_USER;
 
     if (!fapshiApiKey || !fapshiApiUser) {
       await Transaction.findByIdAndUpdate(transactionId, { status: 'Failed' });
