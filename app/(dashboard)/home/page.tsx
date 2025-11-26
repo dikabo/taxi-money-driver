@@ -51,7 +51,7 @@ async function getDriverData() {
   const { data: { session } } = await supabase.auth.getSession();
 
   if (!session) {
-    return redirect('/signup');
+    return redirect('/login');
   }
 
   await dbConnect();
@@ -59,7 +59,7 @@ async function getDriverData() {
   const driver = await Driver.findOne({ authId: session.user.id });
 
   if (!driver) {
-    return redirect('/signup');
+    return redirect('/login');
   }
 
   const recentTransactionsRaw: RawTransaction[] = await Transaction.find({
