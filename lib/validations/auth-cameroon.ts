@@ -1,7 +1,7 @@
 /**
  * File: /lib/validations/auth-cameroon.ts
  * Purpose: Zod schemas for driver authentication
- * ✅ FIXED: All TypeScript errors resolved
+ * ✅ FIXED: driverOtpSchema now accepts BOTH phone formats
  */
 
 import { z } from 'zod';
@@ -48,10 +48,19 @@ export const driverSignupSchema = z.object({
 // ✅ ALIAS: Export signupSchema to match your form imports
 export const signupSchema = driverSignupSchema;
 
+// ✅ FIXED: Now accepts BOTH phone formats (with or without +237)
 export const driverOtpSchema = z.object({
-  phoneNumber: z.string().regex(cameroonPhoneRegex, {
-    message: 'Le numéro doit être au format 6XXXXXXXX',
-  }),
+  phoneNumber: z.string().refine(
+    (phone) => {
+      // Allow either format:
+      // 1. 6XXXXXXXX (9 digits)
+      // 2. +237XXXXXXXX (with country code)
+      return /^[6-8]\d{8}$/.test(phone) || /^\+237[6-8]\d{8}$/.test(phone);
+    },
+    {
+      message: 'Le numéro doit être au format 6XXXXXXXX ou +237XXXXXXXX',
+    }
+  ),
   token: z
     .string()
     .min(6, 'Le code OTP doit être de 6 chiffres')
