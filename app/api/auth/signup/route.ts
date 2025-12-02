@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers'; // Import cookies HERE
+import { cookies } from 'next/headers';
 import dbConnect from '@/lib/db/mongoose-connection';
 import Driver from '@/lib/db/models/Driver';
 import { signupSchema } from '@/lib/validations/auth-cameroon';
@@ -10,22 +10,70 @@ import {
 import { z } from 'zod';
 
 /**
- * File: /app/api/auth/signup/route.ts
+ * File: /app/api/auth/signup/route.ts (DRIVER APP)
  * Purpose: API endpoint for new driver registration.
- *
- * THE FIX: Cleaned up the 'otpError' logic to remove the warning.
+ * 
+ * ✅ CRITICAL FIX: Proper phone number handling
+ * - Supabase (OTP) needs: +237XXXXXXXXX (international format)
+ * - MongoDB/Fapshi needs: 6XXXXXXXX (local format, no +237)
  */
 
 interface MongoError {
   code: number;
 }
 
+/**
+ * Format phone for Supabase (needs +237 prefix)
+ */
+function formatPhoneForSupabase(phone: string): string {
+  // Remove all spaces and special characters
+  const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+  
+  // If already has +237, return as is
+  if (cleaned.startsWith('+237')) {
+    return cleaned;
+  }
+  
+  // If starts with 237, add +
+  if (cleaned.startsWith('237')) {
+    return `+${cleaned}`;
+  }
+  
+  // If starts with 6-8 (valid Cameroon mobile), add +237
+  if (/^[6-8]\d{8}$/.test(cleaned)) {
+    return `+237${cleaned}`;
+  }
+  
+  // Otherwise add +237
+  return `+237${cleaned}`;
+}
+
+/**
+ * Clean phone for MongoDB/Fapshi (just 9 digits, no prefix)
+ */
+function cleanPhoneForStorage(phone: string): string {
+  // Remove all non-digits
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // If has 237 prefix, remove it
+  if (cleaned.startsWith('237')) {
+    cleaned = cleaned.substring(3);
+  }
+  
+  // Should be 9 digits starting with 6/7/8
+  if (/^[6-8]\d{8}$/.test(cleaned)) {
+    return cleaned;
+  }
+  
+  throw new Error('Invalid Cameroon phone number format');
+}
+
 export async function POST(req: NextRequest) {
-  const cookieStore = await cookies(); // Call cookies() ONCE at the top
+  const cookieStore = await cookies();
 
   try {
     // 1. Initialize Supabase Admin Client
-    const supabaseAdmin = createAdminServerClient(cookieStore); 
+    const supabaseAdmin = createAdminServerClient(cookieStore);
     if (!supabaseAdmin) {
       return NextResponse.json(
         { error: 'Could not create Supabase Admin client' },
@@ -39,7 +87,6 @@ export async function POST(req: NextRequest) {
 
     if (!validation.success) {
       return NextResponse.json(
-        // This 'issues' line is correct. The error is a cache bug.
         { error: 'Invalid input.', details: validation.error.issues },
         { status: 400 }
       );
@@ -52,20 +99,29 @@ export async function POST(req: NextRequest) {
       ...driverData
     } = validation.data;
 
+    console.log('[DRIVER SIGNUP] Original phone from form:', phoneNumber);
+
+    // ✅ CRITICAL: Format phone differently for different purposes
+    const supabasePhone = formatPhoneForSupabase(phoneNumber); // +237XXXXXXXXX for Supabase/Twilio
+    const storagePhone = cleanPhoneForStorage(phoneNumber);     // 6XXXXXXXX for MongoDB/Fapshi
+    
+    console.log('[DRIVER SIGNUP] Supabase format (for OTP):', supabasePhone);
+    console.log('[DRIVER SIGNUP] Storage format (for MongoDB/Fapshi):', storagePhone);
+
     // 3. Connect to Database
     await dbConnect();
 
-    // 4. Check for existing driver
+    // 4. Check for existing driver (use storage format)
     const existingDriver = await Driver.findOne({
       $or: [
-        { phoneNumber },
+        { phoneNumber: storagePhone },
         { immatriculation: driverData.immatriculation },
       ],
     });
 
     if (existingDriver) {
       let message = 'A user with this account already exists.';
-      if (existingDriver.phoneNumber === phoneNumber) {
+      if (existingDriver.phoneNumber === storagePhone) {
         message = 'A user with this phone number already exists.';
       } else if (existingDriver.immatriculation === driverData.immatriculation) {
         message = 'A vehicle with this immatriculation number is already registered.';
@@ -73,10 +129,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 409 });
     }
 
-    // 5. Create Auth User in Supabase (using Admin Client)
+    // 5. Create Auth User in Supabase (use Supabase format with +237)
+    console.log('[DRIVER SIGNUP] Creating Supabase user with phone:', supabasePhone);
     const { data: authData, error: authError } =
       await supabaseAdmin.auth.admin.createUser({
-        phone: phoneNumber,
+        phone: supabasePhone, // +237XXXXXXXXX for Twilio
         password: password,
         email: email,
         phone_confirm: false,
@@ -84,51 +141,62 @@ export async function POST(req: NextRequest) {
       });
 
     if (authError) {
-      console.error('Supabase auth error:', authError);
-      return NextResponse.json(
-        { error: `Supabase auth error: ${authError.message}` },
-        { status: 500 }
-      );
+      console.error('[DRIVER SIGNUP] Supabase Auth Error:', authError);
+      throw new Error(`Supabase Auth Error: ${authError.message}`);
     }
 
     if (!authData.user) {
-      return NextResponse.json(
-        { error: 'Supabase did not return a user.' },
-        { status: 500 }
-      );
+      throw new Error('Supabase did not return a user.');
     }
 
-    // 6. Create the Driver profile in MongoDB
+    console.log('[DRIVER SIGNUP] ✅ Supabase user created:', authData.user.id);
+
+    // 6. Create the Driver profile in MongoDB (use storage format without +237)
     const newDriver = new Driver({
       ...driverData,
       authId: authData.user.id,
-      phoneNumber,
+      phoneNumber: storagePhone, // 6XXXXXXXX (no +237) for Fapshi compatibility
       email: email,
     });
 
     await newDriver.save();
+    console.log('[DRIVER SIGNUP] ✅ MongoDB driver created');
 
-    // 7. Send OTP (by signing in with the Cookie Client)
-    // THIS IS THE FIX for the yellow warning
-    if (phoneNumber === '699999999') {
-      // It's our test user. The test OTP (123456) is handled by "Phone Autofill".
-      console.log('Test user signup. Skipping real SMS send.');
+    // 7. Send OTP using Supabase format
+    console.log('[DRIVER SIGNUP] Sending OTP to:', supabasePhone);
+    
+    // Handle test user
+    if (storagePhone === '699999999') {
+      console.log('[DRIVER SIGNUP] Test user signup. Skipping real SMS send.');
     } else {
-      // It's a real user. Send a real SMS.
+      // Real user - send OTP
       const supabaseCookieClient = createCookieServerClient(cookieStore);
-      const { error: otpError } = await supabaseCookieClient.auth.signInWithPassword({
-        phone: phoneNumber,
-        password: password,
+      const { error: otpError } = await supabaseCookieClient.auth.signInWithOtp({
+        phone: supabasePhone, // +237XXXXXXXXX for Twilio SMS
+        options: {
+          shouldCreateUser: false, // User already created
+        },
       });
 
       if (otpError) {
-        console.error('CRITICAL: Could not send OTP after signup:', otpError.message);
+        console.error('[DRIVER SIGNUP] ❌ OTP send failed:', otpError);
+        console.error('[DRIVER SIGNUP] Phone used:', supabasePhone);
+        
+        // User is created but OTP failed
         return NextResponse.json(
-          { error: `User created, but failed to send OTP: ${otpError.message}` },
+          { 
+            error: `User created, but failed to send OTP: ${otpError.message}. Please try to login.`,
+            userId: authData.user.id,
+            canRetry: true,
+          },
           { status: 500 }
         );
       }
+
+      console.log('[DRIVER SIGNUP] ✅ OTP sent successfully');
     }
+
+    console.log('='.repeat(80));
 
     // 8. Return Success
     return NextResponse.json(
@@ -140,10 +208,10 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error('Signup API Error:', error);
+    console.error('[DRIVER SIGNUP] ❌ Critical Error:', error);
+    
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        // This 'issues' line is correct. The error is a cache bug.
         { error: 'Invalid validation', details: error.issues },
         { status: 400 }
       );
@@ -155,7 +223,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: 'An unexpected server error occurred.' },
+      { error: (error as Error).message || 'An unexpected server error occurred.' },
       { status: 500 }
     );
   }
