@@ -33,7 +33,7 @@ const DriverSchema: Schema<IDriver> = new mongoose.Schema(
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     phoneNumber: { type: String, required: true, unique: true, index: true },
-    email: { type: String, required: false, unique: true, sparse: true, trim: true, lowercase: true },
+    email: { type: String, required: false, unique: false, sparse: true, trim: true, lowercase: true },
     vehicleType: { type: String, required: true, trim: true },
     vehicleColor: { type: String, required: true, trim: true },
     vehicleMake: { type: String, required: true, trim: true },
