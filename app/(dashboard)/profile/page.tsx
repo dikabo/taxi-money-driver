@@ -25,14 +25,14 @@ async function getDriverData() {
   // 1. Get the current user session
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
-    return redirect('/signup');
+    return redirect('/login');
   }
 
   // 2. Get the driver profile from MongoDB
   await dbConnect();
   const driver = await Driver.findOne({ authId: session.user.id });
   if (!driver) {
-    return redirect('/signup');
+    return redirect('/login');
   }
 
   return driver;

@@ -33,7 +33,7 @@ async function getWalletData() {
   const { data: { session } } = await supabase.auth.getSession();
   
   if (!session) {
-    return redirect('/signup');
+    return redirect('/login');
   }
 
   // ✅ Connect to MongoDB
@@ -43,7 +43,7 @@ async function getWalletData() {
   const driver = await Driver.findOne({ authId: session.user.id });
 
   if (!driver) {
-    return redirect('/signup');
+    return redirect('/login');
   }
 
   // ✅ Use REAL available balance from driver document
