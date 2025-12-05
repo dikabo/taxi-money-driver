@@ -10,7 +10,6 @@ import { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { HistoryModal } from '@/components/dashboard/transactions/HistoryModal';
-import Image from 'next/image';
 
 /**
  * File: /app/(dashboard)/home/page.tsx (DRIVER APP)
@@ -137,7 +136,7 @@ export default async function DriverHomePage() {
           <CardContent className="flex flex-col items-center space-y-4">
             {/* Real QR Code Image */}
             <div className="p-4 bg-white rounded-lg">
-              <Image
+              <img
                 src={qrCodeUrl}
                 alt="Driver QR Code"
                 width={200}
